@@ -3,6 +3,7 @@ from tqdm import tqdm
 import pandas as pd
 from datetime import datetime
 import re
+import glob
 
 HTML_CLASSES = {'author': '_3-95 _2pim _a6-h _a6-i',
                 'timestamp': '_3-94 _a6-o',
@@ -39,9 +40,11 @@ class Message:
         self.links = list(set([a.get('href') for a in self.a])) if self.meta not in ['image', 'audio', 'video'] else []
         if any([x.startswith('https://www.instagram.com') for x in self.links]):
             self.meta = 'post'
+            self.content = None
         elif self.links:
             self.meta = 'link'
-        
+            self.content = None
+
         if self.content: 
             self.content = '\n'.join(self.content)
             self.meta = 'message'
@@ -49,15 +52,14 @@ class Message:
                 self.meta = 'deprecated_like'
                 self.content = None
 
-def parse_html_file(path: str) -> df:
+def parse_html_file(path: str) -> pd.DataFrame:
 
-    with open(path) as f:
+    with open(path, encoding='utf8') as f:
         data = f.read()
     soup = BeautifulSoup(data, 'lxml')
 
     message_divs = soup.find_all('div', class_=HTML_CLASSES['message'])
-    messages = [Message(m) for m in tqdm(message_divs)]
-
+    messages = [Message(m) for m in tqdm(message_divs, desc='Parsing messages', leave=False)]
     message_dicts = []
     for m in messages:
         d = {'meta': m.meta,
@@ -69,3 +71,18 @@ def parse_html_file(path: str) -> df:
     df = pd.DataFrame.from_dict([m for m in message_dicts if not str(m['timestamp']) == 'NaT'])
     return df
 
+def parse_html_folder(path: str = 'data') -> pd.DataFrame:
+    paths = glob.glob(f"{path}/*.html")
+    paths = sorted(paths, key = lambda x : int(re.split('\_|\.', x)[-2]))
+    dfs = [parse_html_file(path) for path in tqdm(paths, desc='Parsing HTML files')]
+    return dfs
+
+def make_csv(data_path: str = 'data'):
+    csv_path = f"{data_path}/messages.csv"
+    dfs = parse_html_folder(data_path)
+    all_messages_df = pd.concat(dfs)
+    all_messages_df = all_messages_df.iloc[::-1] # Reverses the df
+    all_messages_df.to_csv(csv_path)
+
+if __name__ == '__main__':
+    make_csv()
