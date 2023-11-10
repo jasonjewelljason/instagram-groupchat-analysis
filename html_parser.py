@@ -5,9 +5,8 @@ from datetime import datetime
 import re
 import glob
 import PySimpleGUI as sg
-import json
-import ast
 import unicodedata
+import emoji
 
 HTML_CLASSES = {'author': '_3-95 _2pim _a6-h _a6-i',
                 'timestamp': '_3-94 _a6-o',
@@ -15,6 +14,15 @@ HTML_CLASSES = {'author': '_3-95 _2pim _a6-h _a6-i',
                 'message': "pam _3-95 _2ph- _a6-g uiBoxWhite noborder",
                 'likers': '_a6-q'}
 DEPRECATED_LIKE_PATTERN = re.compile('^\S+ liked a message')
+
+def remove_first_emoji(s):
+    # Find all emojis in the string
+    all_emojis = emoji.emoji_list(s)
+    # If the string starts with an emoji, remove it
+    if all_emojis and all_emojis[0]['match_start'] == 0:
+        # Remove the first emoji by slicing the string from the end of the emoji
+        return s[all_emojis[0]['match_end']:]
+    return s
 
 class Message:
     def __init__(self, message_div) -> None:
@@ -24,7 +32,7 @@ class Message:
         self.timestamp = self.timestamp_div.get_text() if self.timestamp_div else None
         self.timestamp = pd.to_datetime(self.timestamp)
         self.likers_list = message_div.find('ul', class_=HTML_CLASSES['likers'])
-        self.likers = [li.get_text(strip=True)[2:] for li in self.likers_list.find_all('li')] if self.likers_list else []
+        self.likers = [remove_first_emoji(li.get_text(strip=True)) for li in self.likers_list.find_all('li')] if self.likers_list else []
         self.content_div = message_div.find('div', class_=HTML_CLASSES['content'])
 
         self.meta = None
@@ -78,7 +86,7 @@ def parse_html_file(path: str) -> pd.DataFrame:
 def parse_html_folder(path: str = 'data') -> (pd.DataFrame, pd.DataFrame):
     paths = glob.glob(f"{path}/*.html")
     paths = sorted(paths, key = lambda x : int(re.split('\_|\.', x)[-2]))
-    # paths = paths[:1] # Remove this later
+    # paths = paths[3:4] # Remove this later
     dfs = [parse_html_file(path) for path in tqdm(paths, desc='Parsing HTML files')]
     all_messages_df = pd.concat(dfs)
     all_messages_df = all_messages_df.iloc[::-1] # Reverses the df
@@ -119,7 +127,7 @@ def validate(messages_df, like_events_df):
     # Define the layout with better spacing and alignment
     layout = [
         [sg.Text('Author Manager', font=("Helvetica", 16), justification='center', pad=((0,0), (20,10)))],
-        [sg.Listbox(values=list(messages_df['author'].unique()), size=(30, 10), key='-AUTHOR-LIST-', enable_events=True)],
+        [sg.Listbox(values=list(like_events_df['liker'].unique()), size=(30, 10), key='-AUTHOR-LIST-', enable_events=True)],
         [sg.Text('Rename selected author to:', pad=((0,0), (20,3))), sg.InputText(key='-NEW-AUTHOR-NAME-', do_not_clear=False)],
         [sg.Button('Rename Author', bind_return_key=True, pad=((0,0), (10,20)))],
         [sg.Button('Exit', pad=((0,0), (0,20)))]
