@@ -3,6 +3,8 @@ import pandas as pd
 from duckdb import sql
 import matplotlib.pyplot as plt
 import numpy as np
+import nltk
+from nltk.sentiment import SentimentIntensityAnalyzer
 
 m,l = load_df()
 
@@ -43,6 +45,9 @@ def generate_author_stats(m,l) -> pd.DataFrame:
     # Word count
     m['word_count'] = m['content'].apply(count_words)
     cols['total_words'] = m.groupby('author')['word_count'].sum()
+
+    # Average sentiment
+    cols['average_sentiment'] = m.groupby('author')['sentiment_score'].mean()
 
     # Merging all these counts into the author_stats dataframe
     author_stats = author_stats.set_index('author')
@@ -127,8 +132,15 @@ def plot_activity_over_time(activity_data, authors=None, label_frequency=4):
     plt.tight_layout()
     plt.show()
 
-def sentiment_analysis():
-    pass
+def sentiment_analysis(m):
+    # Adds sentiment score column to m
+    nltk.download('vader_lexicon')
+    sia = SentimentIntensityAnalyzer()
+    def get_sentiment_score(message):
+        if pd.isna(message):
+            return None
+        return sia.polarity_scores(message)['compound']
+    m['sentiment_score'] = m['content'].apply(get_sentiment_score)
 
 
 if __name__ == '__main__':
