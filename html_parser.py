@@ -7,6 +7,8 @@ import glob
 import PySimpleGUI as sg
 import unicodedata
 import emoji
+import tkinter as tk
+from tkinter import messagebox, ttk
 
 HTML_CLASSES = {'author': '_3-95 _2pim _a6-h _a6-i',
                 'timestamp': '_3-94 _a6-o',
@@ -84,7 +86,7 @@ def parse_html_file(path: str) -> pd.DataFrame:
     return df
 
 def parse_html_folder(path: str = 'data') -> (pd.DataFrame, pd.DataFrame):
-    paths = glob.glob(f"{path}/*.html")
+    paths = glob.glob(f"{path}/message_1.html")
     paths = sorted(paths, key = lambda x : int(re.split('\_|\.', x)[-2]))
     # paths = paths[3:4] # Remove this later
     dfs = [parse_html_file(path) for path in tqdm(paths, desc='Parsing HTML files')]
@@ -119,8 +121,80 @@ def rename_author(messages_df, like_events_df, old_name, new_name):
 
     return messages_df, like_events_df
 
-
 def validate(messages_df, like_events_df):
+    # Create the main window
+    root = tk.Tk()
+    root.title('Author Manager')
+
+    # Modern styling
+    style = ttk.Style()
+    style.theme_use('clam')  # Using 'clam' for a more modern look
+
+    # Configure the style of widgets for a modern appearance
+    style.configure('TButton', font=('Helvetica', 12, 'bold'), borderwidth='4')
+    style.configure('TLabel', font=('Helvetica', 12, 'bold'))
+    style.configure('TEntry', font=('Helvetica', 12, 'normal'))
+    style.configure('TListbox', font=('Helvetica', 12, 'normal'))
+    style.configure('TFrame', background='light grey')
+
+    # Create the listbox to display authors
+    lb_frame = ttk.Frame(root, padding="10 10 10 10", style='TFrame')
+    lb_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+    scrollbar = ttk.Scrollbar(lb_frame, orient="vertical")
+    listbox = tk.Listbox(lb_frame, exportselection=0, yscrollcommand=scrollbar.set, font=('Helvetica', 12), relief=tk.FLAT)
+    scrollbar.config(command=listbox.yview)
+    scrollbar.pack(side="right", fill="y")
+    listbox.pack(side="left", fill="both", expand=True)
+
+    # Populate the listbox with authors
+    for author in like_events_df['liker'].unique():
+        listbox.insert(tk.END, author)
+
+    # Create the label and entry for the new author name
+    entry_frame = ttk.Frame(root, padding="10 10 10 10", style='TFrame')
+    entry_frame.pack(padx=10, pady=10)
+    label = ttk.Label(entry_frame, text='Rename selected author to:')
+    label.pack(side="left", padx=5)
+    entry = ttk.Entry(entry_frame, width=30)
+    entry.pack(side="left", padx=5)
+
+    # Function to handle the renaming
+    def rename_author_inner():
+        selected_author = listbox.get(listbox.curselection())
+        new_author_name = entry.get().strip()
+        if selected_author and new_author_name and new_author_name != selected_author:
+            nonlocal messages_df, like_events_df
+            messages_df, like_events_df = rename_author(messages_df, like_events_df, selected_author, new_author_name)
+            # Update the listbox
+            listbox.delete(0, tk.END)
+            for author in like_events_df['liker'].unique():
+                listbox.insert(tk.END, author)
+            messagebox.showinfo('Rename Successful', f'Author "{selected_author}" has been renamed to "{new_author_name}"')
+
+    # Update the entry with the selected author's name
+    def on_listbox_select(event):
+        selected_author = listbox.get(listbox.curselection())
+        entry.delete(0, tk.END)
+        entry.insert(0, selected_author)
+
+    # Bind the listbox selection event
+    listbox.bind('<<ListboxSelect>>', on_listbox_select)
+
+    # Create the rename button
+    rename_button = ttk.Button(root, text="Rename Author", command=rename_author_inner)
+    rename_button.pack(padx=10, pady=5)
+
+    # Create the 'Finished' button to exit the GUI
+    def close_gui():
+        root.destroy()
+
+    finished_button = ttk.Button(root, text="Finished", command=close_gui)
+    finished_button.pack(padx=10, pady=10)
+
+    # Start the event loop
+    root.mainloop()
+
+def validate_DEP(messages_df, like_events_df):
     # Choose a theme for the GUI
     sg.theme('SystemDefault1')
 
@@ -189,6 +263,6 @@ def load_df(path: str = 'data', dfs: list = ['messages', 'likes']):
 
 if __name__ == '__main__':
     m,l = parse_html_folder()
-    make_csvs(m, l)
+    make_csvs(m, l, data_path='datatest')
     # m, l = load_df()
     # print(l.head())
