@@ -4,7 +4,6 @@ import pandas as pd
 from datetime import datetime
 import re
 import glob
-import PySimpleGUI as sg
 import unicodedata
 import emoji
 import tkinter as tk
@@ -86,7 +85,7 @@ def parse_html_file(path: str) -> pd.DataFrame:
     return df
 
 def parse_html_folder(path: str = 'data') -> (pd.DataFrame, pd.DataFrame):
-    paths = glob.glob(f"{path}/message_1.html")
+    paths = glob.glob(f"{path}/*.html")
     paths = sorted(paths, key = lambda x : int(re.split('\_|\.', x)[-2]))
     # paths = paths[3:4] # Remove this later
     dfs = [parse_html_file(path) for path in tqdm(paths, desc='Parsing HTML files')]
@@ -193,45 +192,6 @@ def validate(messages_df, like_events_df):
 
     # Start the event loop
     root.mainloop()
-
-def validate_DEP(messages_df, like_events_df):
-    # Choose a theme for the GUI
-    sg.theme('SystemDefault1')
-
-    # Define the layout with better spacing and alignment
-    layout = [
-        [sg.Text('Author Manager', font=("Helvetica", 16), justification='center', pad=((0,0), (20,10)))],
-        [sg.Listbox(values=list(like_events_df['liker'].unique()), size=(30, 10), key='-AUTHOR-LIST-', enable_events=True)],
-        [sg.Text('Rename selected author to:', pad=((0,0), (20,3))), sg.InputText(key='-NEW-AUTHOR-NAME-', do_not_clear=False)],
-        [sg.Button('Rename Author', bind_return_key=True, pad=((0,0), (10,20)))],
-        [sg.Button('Exit', pad=((0,0), (0,20)))]
-    ]
-
-    # Create the window with a nicer layout
-    window = sg.Window('Author Manager', layout, element_justification='c', finalize=True)
-
-    # Event loop
-    while True:
-        event, values = window.read()
-
-        if event in (sg.WIN_CLOSED, 'Exit'):
-            break
-
-        if event == '-AUTHOR-LIST-':
-            if values['-AUTHOR-LIST-']:
-                selected_author = values['-AUTHOR-LIST-'][0]
-                window['-NEW-AUTHOR-NAME-'].update(selected_author)
-
-        elif event == 'Rename Author':
-            selected_author = values['-AUTHOR-LIST-'][0] if values['-AUTHOR-LIST-'] else None
-            new_author_name = values['-NEW-AUTHOR-NAME-'].strip()
-            if selected_author and new_author_name and new_author_name != selected_author:
-                messages_df, like_events_df = rename_author(messages_df, like_events_df, selected_author, new_author_name)
-                window['-AUTHOR-LIST-'].update(list(messages_df['author'].unique()))
-                sg.popup(f'Author "{selected_author}" has been renamed to "{new_author_name}"', title='Rename Successful')
-
-    window.close()
-
 
 def separate_dfs(df):
     # Takes in a df of all messages, and separates it into two messages and like events dfs

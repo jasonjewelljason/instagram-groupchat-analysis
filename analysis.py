@@ -5,6 +5,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
+from nltk.corpus import cmudict
+from nltk.tokenize import WhitespaceTokenizer
+import string
+from spellchecker import SpellChecker
+import itertools
+from tqdm import tqdm
 
 m,l = load_df()
 
@@ -62,11 +68,11 @@ def generate_author_stats(m,l) -> pd.DataFrame:
 
     return author_stats
 
+# Activity over time
 def activity_over_time(m, period='M'):
     m['timestamp'] = pd.to_datetime(m['timestamp'])
     activity = m.set_index('timestamp').groupby([pd.Grouper(freq=period), 'author']).count()['content']
     return activity.unstack().fillna(0).astype(int)
-
 def detect_time_period(index):
     """
     Detects the time period (daily, monthly, etc.) of the provided datetime index.
@@ -83,7 +89,6 @@ def detect_time_period(index):
         return 'D'  # Daily
     else:
         return None  # Undefined or irregular period
-
 def format_x_labels_universal(index, period):
     """
     Formats the x-axis labels for all periods (daily, weekly, monthly, yearly).
@@ -101,7 +106,6 @@ def format_x_labels_universal(index, period):
         labels = [label.strftime('%b %Y') for label in index]
 
     return labels
-
 def plot_activity_over_time(activity_data, authors=None, label_frequency=4):
     if authors == 'all':
         data_to_plot = activity_data.sum(axis=1)
@@ -132,8 +136,9 @@ def plot_activity_over_time(activity_data, authors=None, label_frequency=4):
     plt.tight_layout()
     plt.show()
 
-def sentiment_analysis(m):
-    # Adds sentiment score column to m
+
+def perform_sentiment_analysis(m):
+    # Adds sentiment score column to m.
     nltk.download('vader_lexicon')
     sia = SentimentIntensityAnalyzer()
     def get_sentiment_score(message):
@@ -143,7 +148,83 @@ def sentiment_analysis(m):
     m['sentiment_score'] = m['content'].apply(get_sentiment_score)
 
 
+def my_tokenize(message, tokenizer, spellchecker=None) -> list:
+    tokens = tokenizer.tokenize(message)
+    tokens = [t.strip(string.punctuation).lower() for t in tokens if t.strip(string.punctuation)]
+    if spellchecker:
+        words_to_check = [t for t in tokens if len(t) > 2 and len(t) < 15 and t.isalpha()]
+        misspelled = set(spellchecker.unknown(words_to_check))
+        corrected_tokens = [spellchecker.correction(token) if token in misspelled else token for token in tokens]
+        return corrected_tokens
+    else:
+        return tokens
+
+
+def perform_iambic_pentameter(m, check_spelling=False):
+    """
+    Adds an "is_iambic_pentameter" column to m. Setting check_spelling to True corrects misspellings, but is extremely slow and not recommended.
+    """
+
+    def is_iambic_pentameter(message, cmu, tokenizer, spellchecker=None) -> bool:
+        """
+        Returns if a message follows iambic pentameter.
+
+        Parameters:
+            message (str)
+            cmu (dict): cmudict containing pronunciation information
+            tokenizer (WhitespaceTokenizer): Tokenizer object
+            spellchecker (SpellChecker or None): Optional spellchecker for input message
+        """
+        if not isinstance(message, str):
+            return False
+
+        def cmu_to_stress(word):
+            # Turns cmu data for a word into a list of possible stress patterns
+            out = set()
+            is_one_syllable = None
+            for pronunciation in word:
+                stress = ''
+                for phoneme in pronunciation:
+                    if '0' in phoneme or '1' in phoneme:
+                        stress += phoneme[-1]
+                    elif '2' in phoneme:
+                        stress += '1'
+                out.add(stress)
+                if len(pronunciation) == 1:
+                    is_one_syllable = True
+            if is_one_syllable:
+                out.add('1')
+                out.add('0')
+            return list(out)
+        
+        def combine_lists(lists):
+            # Combines words into all possible combinations of each word's stress patterns
+            combined = [''.join(items) for items in itertools.product(*lists)]
+            return combined
+        
+        def possible_stress_patterns(stresses):
+            return set(combine_lists(stresses))
+
+        text = my_tokenize(message, tokenizer, spellchecker)
+        if len(text) > 10:
+            return False
+        try:
+            text_pronunciation = [cmu[x] for x in text]
+        except:
+            return False
+        stresses = [cmu_to_stress(x) for x in text_pronunciation]
+        possible_patterns = possible_stress_patterns(stresses)
+        if '0101010101' in possible_patterns:
+            return True
+        else: 
+            return False
+
+    nltk.download('cmudict') 
+    nltk.download('punkt')
+    cmu = cmudict.dict()
+    spellchecker = SpellChecker() if check_spelling else None
+    tokenizer = WhitespaceTokenizer()
+    m['is_iambic_pentameter'] = m['content'].apply(lambda message: is_iambic_pentameter(message, cmu, tokenizer, spellchecker))
+
 if __name__ == '__main__':
-    # activity_data = activity_over_time(m, 'Y')
-    # plot_activity_over_time(activity_data, authors=['Jason Jewell', 'Matthew Eshaya'])
     pass
