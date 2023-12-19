@@ -1,3 +1,5 @@
+# I did a lot of work on this code mainly for a personal project, so AI was used a lot and I didn't really keep track of sources on stuff.
+
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 import pandas as pd

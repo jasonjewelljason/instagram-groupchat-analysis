@@ -137,7 +137,7 @@ def plot_activity_over_time(activity_data, authors=None, label_frequency=4):
     plt.show()
 
 
-def perform_sentiment_analysis(m):
+def perform_sentiment_analysis(m) -> None:
     # Adds sentiment score column to m.
     nltk.download('vader_lexicon')
     sia = SentimentIntensityAnalyzer()
@@ -160,7 +160,7 @@ def my_tokenize(message, tokenizer, spellchecker=None) -> list:
         return tokens
 
 
-def perform_iambic_pentameter(m, check_spelling=False):
+def perform_iambic_pentameter(m, check_spelling=False) -> None:
     """
     Adds an "is_iambic_pentameter" column to m. Setting check_spelling to True corrects misspellings, but is extremely slow and not recommended.
     """
@@ -225,6 +225,30 @@ def perform_iambic_pentameter(m, check_spelling=False):
     spellchecker = SpellChecker() if check_spelling else None
     tokenizer = WhitespaceTokenizer()
     m['is_iambic_pentameter'] = m['content'].apply(lambda message: is_iambic_pentameter(message, cmu, tokenizer, spellchecker))
+
+
+def count_words_by_author(m, words) -> pd.DataFrame:
+    # Given a messages df and list of words, returns a df with counts of how many times each author sent that word
+    m['content'] = m['content'].fillna('')
+    m['message_lower'] = m['content'].str.lower()
+
+    # Initialize the DataFrame with zeros
+    unique_authors = m['author'].unique()
+    word_counts_df = pd.DataFrame(index=unique_authors, columns=words).fillna(0)
+
+    # Using vectorized operations for counting
+    for word in words:
+        word_lower = word.lower()
+        # Create a temporary DataFrame with counts of each word for each author
+        temp_df = m[m['message_lower'].str.contains(word_lower)].groupby('author')['message_lower'].apply(
+            lambda x: x.str.count(word_lower).sum()).reset_index(name='count')
+
+        # Update the counts in the main DataFrame
+        for row in temp_df.itertuples(index=False):
+            word_counts_df.at[row.author, word] = row.count
+
+    return word_counts_df
+
 
 if __name__ == '__main__':
     pass

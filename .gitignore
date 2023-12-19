@@ -2,3 +2,8 @@ data/
 datatest/
 __pycache__
 ml
+nltk
+rewind
+make_datasets
+dataset
+AI stuff/
