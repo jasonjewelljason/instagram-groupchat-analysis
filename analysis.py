@@ -2,6 +2,7 @@ from html_parser import load_df
 import pandas as pd
 from duckdb import sql
 import matplotlib.pyplot as plt
+import seaborn as sns
 import numpy as np
 import nltk
 from nltk.sentiment import SentimentIntensityAnalyzer
@@ -9,10 +10,9 @@ from nltk.corpus import cmudict
 from nltk.tokenize import WhitespaceTokenizer
 import string
 from spellchecker import SpellChecker
-import itertools
+from itertools import product as itertools_product
 from tqdm import tqdm
 
-m,l = load_df()
 
 def remove_empty_messages(df):
     return apply_sql("select * from df where meta is not null")
@@ -26,50 +26,73 @@ def count_words(t):
     else:
         return 0
 
-def generate_author_stats(m,l) -> pd.DataFrame:
+def generate_author_stats(groupchat, columns: list) -> pd.DataFrame:
+
+    m = groupchat.messages
+    l = groupchat.likes
+    authors = groupchat.authors
 
     # Initializing the dataframe with unique authors
-    author_stats = pd.DataFrame(m['author'].unique(), columns=['author'])
+    author_stats = pd.DataFrame(authors, columns=['author'])
     cols = {}
 
     # Total Sends: Counting the number of sends (rows) for each author in m
-    cols['total_sends'] = m['author'].value_counts()
+    if "Total sends" in columns:
+        cols['total_sends'] = m['author'].value_counts()
 
     # Aggregating total message types by counting on the 'meta' column of m
     for meta in ['message', 'link', 'image', 'post', 'video', 'audio']:
-        cols[f'total_{meta}s'] = m[m['meta'] == meta]['author'].value_counts()
+        if f'Total {meta}s' in columns:
+            cols[f'total_{meta}s'] = m[m['meta'] == meta]['author'].value_counts().fillna(0).astype(int)
 
     # Likes Given: Counting the number of likes given by each author in l
-    cols['likes_given'] = l['liker'].value_counts()
+    if 'Likes given' in columns:
+        cols['likes_given'] = l['liker'].value_counts().fillna(0).astype(int)
 
     # Likes Received: Calculating the number of likes received for each author's posts
     # Mapping post_ids in m to their corresponding likes in l
-    post_likes = l['post_id'].value_counts()
-    m['likes_received'] = m['post_id'].map(post_likes).fillna(0)
-    cols['likes_received'] = m.groupby('author')['likes_received'].sum()
+    if 'Likes received' in columns:
+        post_likes = l['post_id'].value_counts()
+        m['likes_received'] = m['post_id'].map(post_likes).fillna(0)
+        cols['likes_received'] = m.groupby('author')['likes_received'].sum().astype(int)
 
     # Word count
-    m['word_count'] = m['content'].apply(count_words)
-    cols['total_words'] = m.groupby('author')['word_count'].sum()
+    if 'Word count' in columns:
+        m['word_count'] = m['content'].apply(count_words)
+        cols['total_words'] = m.groupby('author')['word_count'].sum().astype(int)
 
     # Average sentiment
-    cols['average_sentiment'] = m.groupby('author')['sentiment_score'].mean()
+    if 'Average sentiment' in columns:
+        perform_sentiment_analysis(groupchat)
+        cols['average_sentiment'] = m.groupby('author')['sentiment_score'].mean()
+
+    # Run data
+    if 'Total runs' in columns or 'Longest run' in columns or 'Average run length' in columns:
+        runs_data = make_runs_data(groupchat)
+        if 'Total runs' in columns:
+            cols['total_runs'] = {author: data['total_runs'] for author, data in runs_data.items()}
+        if 'Longest run' in columns:
+            cols['longest_run'] = {author: data['longest_run'] for author, data in runs_data.items()}
+        if 'Average run length' in columns:
+            cols['average_run_length'] = {author: data['average_run_length'] for author, data in runs_data.items()}
 
     # Merging all these counts into the author_stats dataframe
     author_stats = author_stats.set_index('author')
-    for k,v in cols.items():
-        author_stats[k] = author_stats.index.map(v)
+    for k, v in cols.items():
+        if k in ['total_sends', 'likes_given', 'likes_received', 'total_words', 'total_messages', 'total_links', 'total_images', 'total_posts', 'total_videos', 'total_audios', 'total_runs', 'longest_run']:
+            author_stats[k] = author_stats.index.map(v).fillna(0).astype(int)
+        else:
+            author_stats[k] = author_stats.index.map(v).fillna(0)
 
     # Filling NaN values with 0 as they indicate no activity in that category
     author_stats.fillna(0, inplace=True)
 
-    # Converting counts to integers
-    author_stats = author_stats.astype(int)
-
     return author_stats
 
+
 # Activity over time
-def activity_over_time(m, period='M'):
+def activity_over_time(groupchat, period='M'):
+    m = groupchat.messages
     m['timestamp'] = pd.to_datetime(m['timestamp'])
     activity = m.set_index('timestamp').groupby([pd.Grouper(freq=period), 'author']).count()['content']
     return activity.unstack().fillna(0).astype(int)
@@ -137,15 +160,19 @@ def plot_activity_over_time(activity_data, authors=None, label_frequency=4):
     plt.show()
 
 
-def perform_sentiment_analysis(m) -> None:
+def perform_sentiment_analysis(groupchat) -> None:
     # Adds sentiment score column to m.
+    m = groupchat.messages
+    if 'sentiment_score' in m: return
+
     nltk.download('vader_lexicon')
     sia = SentimentIntensityAnalyzer()
     def get_sentiment_score(message):
         if pd.isna(message):
             return None
         return sia.polarity_scores(message)['compound']
-    m['sentiment_score'] = m['content'].apply(get_sentiment_score)
+    tqdm.pandas(desc="Analyzing sentiment")
+    m['sentiment_score'] = m['content'].progress_apply(get_sentiment_score)
 
 
 def my_tokenize(message, tokenizer, spellchecker=None) -> list:
@@ -160,11 +187,11 @@ def my_tokenize(message, tokenizer, spellchecker=None) -> list:
         return tokens
 
 
-def perform_iambic_pentameter(m, check_spelling=False) -> None:
+def perform_iambic_pentameter(groupchat, check_spelling=False) -> None:
     """
     Adds an "is_iambic_pentameter" column to m. Setting check_spelling to True corrects misspellings, but is extremely slow and not recommended.
     """
-
+    m = groupchat.messages
     def is_iambic_pentameter(message, cmu, tokenizer, spellchecker=None) -> bool:
         """
         Returns if a message follows iambic pentameter.
@@ -199,7 +226,7 @@ def perform_iambic_pentameter(m, check_spelling=False) -> None:
         
         def combine_lists(lists):
             # Combines words into all possible combinations of each word's stress patterns
-            combined = [''.join(items) for items in itertools.product(*lists)]
+            combined = [''.join(items) for items in itertools_product(*lists)]
             return combined
         
         def possible_stress_patterns(stresses):
@@ -224,11 +251,13 @@ def perform_iambic_pentameter(m, check_spelling=False) -> None:
     cmu = cmudict.dict()
     spellchecker = SpellChecker() if check_spelling else None
     tokenizer = WhitespaceTokenizer()
-    m['is_iambic_pentameter'] = m['content'].apply(lambda message: is_iambic_pentameter(message, cmu, tokenizer, spellchecker))
+    tqdm.pandas(desc='Checking for iambic pentameter')
+    m['is_iambic_pentameter'] = m['content'].progress_apply(lambda message: is_iambic_pentameter(message, cmu, tokenizer, spellchecker))
 
 
-def count_words_by_author(m, words) -> pd.DataFrame:
+def count_words_by_author(groupchat, words) -> pd.DataFrame:
     # Given a messages df and list of words, returns a df with counts of how many times each author sent that word
+    m = groupchat.messages
     m['content'] = m['content'].fillna('')
     m['message_lower'] = m['content'].str.lower()
 
@@ -249,6 +278,85 @@ def count_words_by_author(m, words) -> pd.DataFrame:
 
     return word_counts_df
 
+def make_repliers_dict(groupchat) -> dict:
+    # Given a messages df, returns a dictionary with each author as a key and a dictionary of repliers as the value
+    m = groupchat.messages
+    messages = m[m['meta'] == 'message']
+
+    authors = groupchat.authors
+    repliers_dict = {author: {a: 0 for a in authors} for author in authors}
+
+    for i in range(1, len(messages)):
+        current_message = messages.iloc[i]
+        previous_message = messages.iloc[i - 1]
+
+        if current_message['author'] != previous_message['author']:
+            repliers_dict[previous_message['author']][current_message['author']] += 1
+
+    return repliers_dict
+
+def make_runs_data(groupchat) -> dict:
+    # Given a messages df, returns a dictionary with each author as a key and a dictionary of runs data as the value
+    m = groupchat.messages
+    runs_data = {}
+    previous_author = None
+    current_run_length = 0
+
+    for index, row in m.iterrows():
+        author = row['author']
+        if author == previous_author:
+            current_run_length += 1
+        else:
+            if previous_author is not None:
+                if previous_author not in runs_data:
+                    runs_data[previous_author] = {'total_runs': 0, 'total_messages_in_runs': 0, 'longest_run': 0}
+                
+                runs_data[previous_author]['total_runs'] += 1
+                runs_data[previous_author]['total_messages_in_runs'] += current_run_length
+                runs_data[previous_author]['longest_run'] = max(runs_data[previous_author]['longest_run'], current_run_length)
+
+            previous_author = author
+            current_run_length = 1
+
+    # Adding the last author's run data
+    if previous_author is not None:
+        if previous_author not in runs_data:
+            runs_data[previous_author] = {'total_runs': 0, 'total_messages_in_runs': 0, 'longest_run': 0}
+
+        runs_data[previous_author]['total_runs'] += 1
+        runs_data[previous_author]['total_messages_in_runs'] += current_run_length
+        runs_data[previous_author]['longest_run'] = max(runs_data[previous_author]['longest_run'], current_run_length)
+
+    for author in runs_data:
+        runs_data[author]['average_run_length'] = runs_data[author]['total_messages_in_runs'] / runs_data[author]['total_runs']
+
+    return runs_data
+
+def activity_heatmap(groupchat):
+    # Given a groupchat, plots a heatmap of activity by day of week and hour of day
+    m = groupchat.messages
+
+    # Convert 'timestamp' to datetime
+    m['timestamp'] = pd.to_datetime(m['timestamp'])
+
+    # Extract day of week and hour from 'timestamp'
+    m['day_of_week'] = m['timestamp'].dt.dayofweek
+    m['hour_of_day'] = m['timestamp'].dt.hour
+
+    # Prepare data for heatmap
+    # Group the data by day of week and hour of day and count the messages
+    heatmap_data = m.groupby(['day_of_week', 'hour_of_day']).size().unstack(fill_value=0)
+
+    # Create the heatmap
+    plt.figure(figsize=(15, 8))
+    sns.heatmap(heatmap_data, cmap='YlGnBu', annot=False)
+    plt.title('Activity Heatmap of Group Chat')
+    plt.xlabel('Hour of Day')
+    plt.ylabel('Day of Week (0: Monday - 6: Sunday)')
+    plt.show()
+
 
 if __name__ == '__main__':
     pass
+
+groupchat = load_df('datatest')

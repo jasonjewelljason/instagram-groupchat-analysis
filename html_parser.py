@@ -1,5 +1,3 @@
-# I did a lot of work on this code mainly for a personal project, so AI was used a lot and I didn't really keep track of sources on stuff.
-
 from bs4 import BeautifulSoup
 from tqdm import tqdm
 import pandas as pd
@@ -67,7 +65,7 @@ class Message:
                 self.meta = 'deprecated_like'
                 self.content = None
 
-def parse_html_file(path: str) -> pd.DataFrame:
+def parse_html_file(path: str) -> (pd.DataFrame, str):
 
     with open(path, encoding='utf8') as f:
         data = f.read()
@@ -75,6 +73,7 @@ def parse_html_file(path: str) -> pd.DataFrame:
 
     message_divs = soup.find_all('div', class_=HTML_CLASSES['message'])
     messages = [Message(m) for m in tqdm(message_divs, desc='Parsing messages', leave=False)]
+    title = soup.find('title').get_text()
     message_dicts = []
     for m in messages:
         d = {'meta': m.meta,
@@ -84,16 +83,19 @@ def parse_html_file(path: str) -> pd.DataFrame:
         'likers': m.likers}
         message_dicts.append(d)
     df = pd.DataFrame.from_dict([m for m in message_dicts if not str(m['timestamp']) == 'NaT'])
-    return df
+    return df, title
 
-def parse_html_folder(path: str = 'data') -> (pd.DataFrame, pd.DataFrame):
+def parse_html_folder(path: str = 'data') -> (pd.DataFrame, pd.DataFrame, str):
     paths = glob.glob(f"{path}/*.html")
     paths = sorted(paths, key = lambda x : int(re.split('\_|\.', x)[-2]))
-    # paths = paths[3:4] # Remove this later
-    dfs = [parse_html_file(path) for path in tqdm(paths, desc='Parsing HTML files')]
+    data = [parse_html_file(path) for path in tqdm(paths, desc='Parsing HTML files')]
+    dfs = [d[0] for d in data]
+    titles = [d[1] for d in data]
+    most_common_title = max(set(titles), key=titles.count)
     all_messages_df = pd.concat(dfs)
     all_messages_df = all_messages_df.iloc[::-1] # Reverses the df
-    return separate_dfs(all_messages_df)
+    messages_df, likes_df = separate_dfs(all_messages_df)
+    return messages_df, likes_df, most_common_title
 
 
 def clean_string(s):
@@ -213,18 +215,34 @@ def separate_dfs(df):
     return messages, like_events
 
 
-def make_csvs(messages_df, likes_df, data_path: str = 'data'):
+def make_csvs(messages_df, likes_df, title, data_path: str = 'data'):
     validate(messages_df, likes_df)
     messages_df.to_csv(f"{data_path}/messages.csv")
     likes_df.to_csv(f"{data_path}/likes.csv")
+    with open(f"{data_path}/title.txt", 'w') as f:
+        f.write(title)
     print("CSV files written!")
 
+class GroupChat:
+    def __init__(self, messages, likes, title) -> None:
+        self.messages = messages
+        self.likes = likes
+        self.title = title
+        self.authors = self.messages['author'].unique()
+    
+    def __str__(self) -> str:
+        return f"GroupChat({self.title})"
+
+    def __len__(self) -> int:
+        return len(self.messages)
+
 def load_df(path: str = 'data', dfs: list = ['messages', 'likes']):
-    out = tuple(pd.read_csv(f"{path}/{df}.csv", index_col=0) for df in dfs)
-    return out
+    m, l = tuple(pd.read_csv(f"{path}/{df}.csv", index_col=0) for df in dfs)
+    title = open(f"{path}/title.txt").read()
+    return GroupChat(m, l, title)
 
 if __name__ == '__main__':
-    m,l = parse_html_folder()
-    make_csvs(m, l, data_path='datatest')
+    m, l, title = parse_html_folder()
+    make_csvs(m, l, title, data_path='datatest')
     # m, l = load_df()
     # print(l.head())
