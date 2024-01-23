@@ -7,8 +7,8 @@ from PySide6.QtCore import Qt, QAbstractTableModel
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from html_parser import load_df
-from analysis import (activity_over_time, format_x_labels_universal, detect_time_period, generate_author_stats,
-                      count_words_by_author)
+from analysis import (activity_over_time, format_x_labels_universal, detect_time_period, generate_author_stats, count_words_by_author, activity_heatmap)
+import seaborn as sns
 
 class GroupChatAnalyzer(QMainWindow):
     def __init__(self):
@@ -24,15 +24,15 @@ class GroupChatAnalyzer(QMainWindow):
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
 
-        # Tab 1: Basic Statistics & Search
+        # Tab 1: Overview
         self.tab1 = QWidget()
         self.initTab1()
-        self.tabs.addTab(self.tab1, "Statistics & Search")
+        self.tabs.addTab(self.tab1, "Overview")
 
         # Tab 2: Analysis Options
         self.tab2 = QWidget()
         self.initTab2()
-        self.tabs.addTab(self.tab2, "Custom Analysis")
+        self.tabs.addTab(self.tab2, "Analysis")
 
         # Tab 3: Graphical Representations
         self.tab3 = QWidget()
@@ -97,15 +97,37 @@ class GroupChatAnalyzer(QMainWindow):
         layout = QHBoxLayout(self.tab3)
 
         # Graph type selection
-        self.graphComboBox = QComboBox()
-        self.graphComboBox.addItems(["Select Graph Type", "Messages per User", "Activity Over Time"])
-        self.graphComboBox.currentTextChanged.connect(self.updateGraph)
-        layout.addWidget(self.graphComboBox)
+
+        button_layout = QVBoxLayout()
+        button_layout.addStretch(1)
+
+        messagesperuserButton = QPushButton("Messages per User")
+        messagesperuserButton.clicked.connect(lambda: self.updateGraph("Messages per User"))
+        button_layout.addWidget(messagesperuserButton)
+
+        activityovertimeButton = QPushButton("Activity Over Time")
+        activityovertimeButton.clicked.connect(lambda: self.openActivityOverTimeDialog())
+        button_layout.addWidget(activityovertimeButton)
+
+        heatmapButton = QPushButton("Activity Heatmap")
+        heatmapButton.clicked.connect(lambda: self.updateGraph("Activity Heatmap"))
+        button_layout.addWidget(heatmapButton)
+
+        button_layout.addStretch(1)
+
+        button_widget = QWidget()
+        button_widget.setLayout(button_layout)
+        layout.addWidget(button_widget)
 
         # Graph display area
         self.figure = Figure()
         self.canvas = FigureCanvas(self.figure)
         layout.addWidget(self.canvas)
+
+        # Export button
+        exportButton = QPushButton("Export")
+        exportButton.clicked.connect(self.exportGraph)
+        layout.addWidget(exportButton)
 
     def loadMessages(self):
         # Load messages from folder containing csv files
@@ -140,10 +162,19 @@ class GroupChatAnalyzer(QMainWindow):
             ax.set_xlabel('User')
             ax.set_ylabel('Number of Messages')
             ax.set_title('Messages per User')
+            ax.figure.tight_layout()
             self.canvas.draw()
         elif graphType == "Activity Over Time":
             self.plot_activity_over_time(self.figure, self.groupchat)
             self.canvas.draw()
+        elif graphType == "Activity Heatmap":
+            self.plot_activity_heatmap(self.figure, self.groupchat)
+            self.canvas.draw()
+
+    def exportGraph(self):
+        selected_file, _ = QFileDialog.getSaveFileName(self, "Save Graph", "", "PNG Files (*.png)")
+        if selected_file:
+            self.figure.savefig(selected_file)
 
     def plot_activity_over_time(self, fig, groupchat, period='M', authors='all', label_frequency=4):
         # Clear the existing figure and create a new axes
@@ -181,7 +212,34 @@ class GroupChatAnalyzer(QMainWindow):
         if authors != 'all':
             ax.legend(title='Authors')
 
-        ax.figure.tight_layout()
+        fig.tight_layout()
+        fig.subplots_adjust(left=0.15, right=0.9, top=0.9, bottom=0.1)
+        
+    def plot_activity_heatmap(self, fig, groupchat):
+        # Clear the existing figure and create a new axes
+        fig.clear()
+        ax = fig.add_subplot(111)
+
+        m = groupchat.messages
+
+        # Convert 'timestamp' to datetime
+        m['timestamp'] = pd.to_datetime(m['timestamp'])
+
+        # Extract day of week and hour from 'timestamp'
+        m['day_of_week'] = m['timestamp'].dt.dayofweek
+        m['hour_of_day'] = m['timestamp'].dt.hour
+
+        # Prepare data for heatmap
+        # Group the data by day of week and hour of day and count the messages
+        heatmap_data = m.groupby(['day_of_week', 'hour_of_day']).size().unstack(fill_value=0)
+
+        # Plot the heatmap on the specified axes
+        sns.heatmap(heatmap_data, cmap='YlGnBu', annot=False, ax=ax)
+
+        ax.set_title('Activity Heatmap')
+        ax.set_xlabel('Hour of Day')
+        ax.set_ylabel('Day of Week (0: Monday - 6: Sunday)')
+        fig.tight_layout()
 
     def openWordCountDialog(self):
         dialog = WordCountDialog(self)
@@ -206,6 +264,17 @@ class GroupChatAnalyzer(QMainWindow):
     def performAuthorStatsAnalysis(self, columns):
         results_df = generate_author_stats(self.groupchat, columns).reset_index()
         self.displayAnalysis(results_df)
+
+    def openActivityOverTimeDialog(self):
+        dialog = ActivityOverTimeDialog(self)
+        if dialog.exec():
+            period = dialog.getPeriod()
+            authors = dialog.getAuthors()
+            self.performActivityOverTimeAnalysis(period, authors)
+
+    def performActivityOverTimeAnalysis(self, period, authors):
+        self.plot_activity_over_time(self.figure, self.groupchat, period=period, authors=authors)
+        self.canvas.draw()
         
 
 class PandasModel(QAbstractTableModel):
@@ -221,7 +290,10 @@ class PandasModel(QAbstractTableModel):
 
     def data(self, index, role=Qt.DisplayRole):
         if index.isValid() and role == Qt.DisplayRole:
-            return str(self._data.iloc[index.row(), index.column()])
+            value = self._data.iloc[index.row(), index.column()]
+            if isinstance(value, float):
+                return format(value, '.3f')
+            return str(value)
         return None
 
     def headerData(self, section, orientation, role):
@@ -285,6 +357,55 @@ class AuthorStatsDialog(QDialog):
     def getColumns(self):
         # Return a list of selected columns
         return [column for column, cb in self.checkboxes.items() if cb.isChecked()]
+
+class ActivityOverTimeDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Activity Over Time Options")
+        layout = QVBoxLayout(self)
+
+        # Label for period selection
+        layout.addWidget(QLabel("Select time period:"))
+
+        # Period selection combobox
+        self.periodComboBox = QComboBox()
+        self.periodComboBox.addItems(['Year', 'Month', 'Week', 'Day'])
+        layout.addWidget(self.periodComboBox)
+
+        # Label for author selection
+        layout.addWidget(QLabel("Select authors:"))
+
+        # Store checkboxes in a dictionary for easy access
+        self.checkboxes = {}
+        for author in self.parent().authors:
+            self.checkboxes[author] = QCheckBox(author)
+            layout.addWidget(self.checkboxes[author])
+
+        # Select All button
+        self.selectAllButton = QPushButton("Select All")
+        self.selectAllButton.clicked.connect(self.selectAll)
+        layout.addWidget(self.selectAllButton)
+
+        # Dialog buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+
+    def selectAll(self):
+        # Toggle the state of all checkboxes
+        all_checked = all(cb.isChecked() for cb in self.checkboxes.values())
+        for cb in self.checkboxes.values():
+            cb.setChecked(not all_checked)
+
+    def getPeriod(self):
+        return self.periodComboBox.currentText()[0]
+    
+    def getAuthors(self):
+        # Return a list of selected authors
+        return [author for author, cb in self.checkboxes.items() if cb.isChecked()]
+
+    
 
 if __name__ == '__main__':
     app = QApplication(sys.argv)
