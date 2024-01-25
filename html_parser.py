@@ -4,10 +4,7 @@ import pandas as pd
 from datetime import datetime
 import re
 import glob
-import unicodedata
 import emoji
-import tkinter as tk
-from tkinter import messagebox, ttk
 from os import makedirs
 
 HTML_CLASSES = {'author': '_3-95 _2pim _a6-h _a6-i',
@@ -67,7 +64,7 @@ class Message:
                 self.content = None
 
 def parse_html_file(path: str) -> (pd.DataFrame, str):
-
+    # Parse a single HTML file and return a df of messages and the title of the chat
     with open(path, encoding='utf8') as f:
         data = f.read()
     soup = BeautifulSoup(data, 'lxml')
@@ -86,7 +83,8 @@ def parse_html_file(path: str) -> (pd.DataFrame, str):
     df = pd.DataFrame.from_dict([m for m in message_dicts if not str(m['timestamp']) == 'NaT'])
     return df, title
 
-def parse_html_folder(path: str = 'data') -> (pd.DataFrame, pd.DataFrame, str):
+def parse_html_folder(path: str = 'data') -> GroupChat:
+    # Parse all HTML files in a folder and return a df of messages, a df of likes, and the title of the chat
     paths = glob.glob(f"{path}/*.html")
     paths = sorted(paths, key = lambda x : int(re.split('\_|\.', x)[-2]))
     paths = paths[:1]
@@ -97,77 +95,8 @@ def parse_html_folder(path: str = 'data') -> (pd.DataFrame, pd.DataFrame, str):
     all_messages_df = pd.concat(dfs)
     all_messages_df = all_messages_df.iloc[::-1] # Reverses the df
     messages_df, likes_df = separate_dfs(all_messages_df)
-    return messages_df, likes_df, most_common_title
+    return GroupChat(messages_df, likes_df, most_common_title)
 
-
-def clean_string(s):
-    # Normalize Unicode data
-    s = unicodedata.normalize('NFKD', s)
-    # Remove non-printable characters and any leading special characters (e.g., emojis)
-    s = ''.join(ch for ch in s if unicodedata.category(ch)[0] not in ['C', 'So'])
-    # Strip leading and trailing whitespace
-    s = s.strip()
-    return s
-
-
-
-from PySide6.QtWidgets import QApplication, QMainWindow, QListWidget, QPushButton, QVBoxLayout, QWidget, QLineEdit, QLabel, QMessageBox
-from PySide6.QtCore import Qt
-import sys
-
-class MainWindow(QMainWindow):
-    def __init__(self, messages_df, like_events_df):
-        super(MainWindow, self).__init__()
-
-        self.messages_df = messages_df
-        self.like_events_df = like_events_df
-
-        self.setWindowTitle('Author Manager')
-
-        self.listbox = QListWidget()
-        self.listbox.addItems(self.like_events_df['liker'].unique())
-        self.listbox.itemSelectionChanged.connect(self.on_listbox_select)
-
-        self.label = QLabel('Rename selected author to:')
-        self.entry = QLineEdit()
-
-        self.rename_button = QPushButton('Rename Author')
-        self.rename_button.clicked.connect(self.rename_author_inner)
-
-        self.finished_button = QPushButton('Finished')
-        self.finished_button.clicked.connect(self.close)
-
-        layout = QVBoxLayout()
-        layout.addWidget(self.listbox)
-        layout.addWidget(self.label)
-        layout.addWidget(self.entry)
-        layout.addWidget(self.rename_button)
-        layout.addWidget(self.finished_button)
-
-        container = QWidget()
-        container.setLayout(layout)
-        self.setCentralWidget(container)
-
-    def rename_author_inner(self):
-        selected_author = self.listbox.currentItem().text()
-        new_author_name = self.entry.text().strip()
-        if selected_author and new_author_name and new_author_name != selected_author:
-            self.messages_df, self.like_events_df = rename_author(self.messages_df, self.like_events_df, selected_author, new_author_name)
-            self.listbox.clear()
-            self.listbox.addItems(self.like_events_df['liker'].unique())
-            QMessageBox.information(self, 'Rename Successful', f'Author "{selected_author}" has been renamed to "{new_author_name}"')
-
-    def on_listbox_select(self):
-        selected_author = self.listbox.currentItem().text()
-        self.entry.setText(selected_author)
-
-def validate(messages_df, like_events_df):
-    app = QApplication(sys.argv)
-
-    window = MainWindow(messages_df, like_events_df)
-    window.show()
-
-    sys.exit(app.exec_())
 
 def separate_dfs(df):
     # Takes in a df of all messages, and separates it into two messages and like events dfs
@@ -187,9 +116,12 @@ def separate_dfs(df):
     return messages, like_events
 
 
-def make_csvs(messages_df, likes_df, title, data_path: str = 'parsed_data'):
+def make_csvs(groupchat, data_path: str = 'parsed_data'):
+    # Saves groupchat info to CSV files in the data_path folder
     makedirs(data_path, exist_ok=True)
-    # validate(messages_df, likes_df)
+    messages_df = groupchat.messages
+    likes_df = groupchat.likes
+    title = groupchat.title
     messages_df.to_csv(f"{data_path}/messages.csv")
     likes_df.to_csv(f"{data_path}/likes.csv")
     with open(f"{data_path}/title.txt", 'w') as f:
@@ -224,13 +156,12 @@ class GroupChat:
         # Update the authors list
         self.authors = self.messages['author'].unique()
 
-def load_df(path: str = 'data', dfs: list = ['messages', 'likes']):
+def load_df(path: str = 'data', dfs: list = ['messages', 'likes']) -> GroupChat:
+    # Loads a groupchat from CSV files, returns a GroupChat object
     m, l = tuple(pd.read_csv(f"{path}/{df}.csv", index_col=0) for df in dfs)
     title = open(f"{path}/title.txt").read()
     return GroupChat(m, l, title)
 
 if __name__ == '__main__':
-    m, l, title = parse_html_folder()
-    make_csvs(m, l, title, data_path='datatest2')
-    # m, l = load_df()
-    # print(l.head())
+    groupchat = parse_html_folder()
+    make_csvs(groupchat)

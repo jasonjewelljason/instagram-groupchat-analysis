@@ -1,6 +1,5 @@
 from html_parser import load_df
 import pandas as pd
-from duckdb import sql
 import matplotlib.pyplot as plt
 import seaborn as sns
 import numpy as np
@@ -16,9 +15,6 @@ from tqdm import tqdm
 
 def remove_empty_messages(df):
     return apply_sql("select * from df where meta is not null")
-
-def apply_sql(query: str) -> pd.DataFrame:
-    return sql(query).df()
 
 def count_words(t):
     if isinstance(t, str):
@@ -354,9 +350,3 @@ def activity_heatmap(groupchat):
     plt.xlabel('Hour of Day')
     plt.ylabel('Day of Week (0: Monday - 6: Sunday)')
     plt.show()
-
-
-if __name__ == '__main__':
-    pass
-
-groupchat = load_df('datatest')

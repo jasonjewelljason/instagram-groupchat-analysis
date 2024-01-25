@@ -1,18 +1,19 @@
 import sys
 import pandas as pd
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTableView, QPushButton, QVBoxLayout, QWidget, 
-                               QLineEdit, QLabel, QTabWidget, QHBoxLayout, QComboBox, QTextEdit, QFileDialog,
-                               QCheckBox, QPushButton, QGridLayout, QDialog, QDialogButtonBox, QListWidget)
+                               QLineEdit, QLabel, QTabWidget, QHBoxLayout, QComboBox, QFileDialog,
+                               QCheckBox, QPushButton, QDialog, QDialogButtonBox, QListWidget)
 from PySide6.QtCore import Qt, QAbstractTableModel
 from PySide6.QtGui import QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from html_parser import load_df
-from analysis import (activity_over_time, format_x_labels_universal, detect_time_period, generate_author_stats, count_words_by_author, activity_heatmap)
+from analysis import (activity_over_time, format_x_labels_universal, detect_time_period, generate_author_stats, count_words_by_author)
 import seaborn as sns
 import unicodedata
 
 def clean_string(s):
+    # unused for now
     # Normalize Unicode data
     s = unicodedata.normalize('NFKD', s)
     # Remove non-printable characters and any leading special characters (e.g., emojis)
@@ -43,12 +44,12 @@ class GroupChatAnalyzer(QMainWindow):
         self.initTab1()
         self.tabs.addTab(self.tab1, "Overview")
 
-        # Tab 2: Analysis Options
+        # Tab 2: Analysis
         self.tab2 = QWidget()
         self.initTab2()
         self.tabs.addTab(self.tab2, "Analysis")
 
-        # Tab 3: Graphical Representations
+        # Tab 3: Graphs
         self.tab3 = QWidget()
         self.initTab3()
         self.tabs.addTab(self.tab3, "Graphs")
@@ -501,6 +502,6 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setStyleSheet(stylesheet())
     app.setFont(QFont('Segoe UI', 10))
-    ex = GroupChatAnalyzer('datatest2')
+    ex = GroupChatAnalyzer('parsed_data')
     ex.show()
     sys.exit(app.exec())
