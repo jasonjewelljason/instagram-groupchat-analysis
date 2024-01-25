@@ -2,22 +2,36 @@ import sys
 import pandas as pd
 from PySide6.QtWidgets import (QApplication, QMainWindow, QTableView, QPushButton, QVBoxLayout, QWidget, 
                                QLineEdit, QLabel, QTabWidget, QHBoxLayout, QComboBox, QTextEdit, QFileDialog,
-                               QCheckBox, QPushButton, QGridLayout, QDialog, QDialogButtonBox)
+                               QCheckBox, QPushButton, QGridLayout, QDialog, QDialogButtonBox, QListWidget)
 from PySide6.QtCore import Qt, QAbstractTableModel
+from PySide6.QtGui import QFont
 from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 from matplotlib.figure import Figure
 from html_parser import load_df
 from analysis import (activity_over_time, format_x_labels_universal, detect_time_period, generate_author_stats, count_words_by_author, activity_heatmap)
 import seaborn as sns
+import unicodedata
+
+def clean_string(s):
+    # Normalize Unicode data
+    s = unicodedata.normalize('NFKD', s)
+    # Remove non-printable characters and any leading special characters (e.g., emojis)
+    s = ''.join(ch for ch in s if unicodedata.category(ch)[0] not in ['C', 'So'])
+    # Strip leading and trailing whitespace
+    s = s.strip()
+    return s
 
 class GroupChatAnalyzer(QMainWindow):
-    def __init__(self):
+    def __init__(self, directory):
         super().__init__()
 
         self.setWindowTitle("Instagram Group Chat Analyzer")
         self.setGeometry(100, 100, 1000, 700)
 
         self.initUI()
+        if directory:
+            self.directory = directory
+            self.loadMessages(directory=directory)
 
     def initUI(self):
         # Tab widget
@@ -47,6 +61,11 @@ class GroupChatAnalyzer(QMainWindow):
         loadButton.clicked.connect(self.loadMessages)
         layout.addWidget(loadButton)
 
+        # Rename authors button
+        renameButton = QPushButton("Rename Authors")
+        renameButton.clicked.connect(self.openRenameDialog)
+        layout.addWidget(renameButton)
+
         # Search bar
         searchBar = QLineEdit()
         searchBar.setPlaceholderText("Search messages...")
@@ -60,6 +79,33 @@ class GroupChatAnalyzer(QMainWindow):
         # Statistics label
         self.statsLabel = QLabel("Statistics will appear here")
         layout.addWidget(self.statsLabel)
+
+    def openRenameDialog(self):
+        # Lets you rename authors multiple times
+        dialog = RenameDialog(self)
+
+        # Create a "Finished" button
+        finished_button = QPushButton("Finished", dialog)
+        finished_button.clicked.connect(dialog.reject)  # Close the dialog when the button is clicked
+        dialog.layout().addWidget(finished_button)  # Add the button to the dialog's layout
+
+        while dialog.exec():
+            old_name = dialog.getOldName()
+            new_name = dialog.getNewName()
+            if old_name and new_name and new_name != old_name:
+                self.groupchat.rename_author(old_name, new_name)
+                self.extractVariablesFromGroupchat()
+                self.tableView.setModel(PandasModel(self.messages))
+                self.tableView.resizeColumnsToContents()
+                self.updateStatistics()
+                print(self.groupchat.authors)
+                print(self.authors)
+                
+                # Update the list of authors in the dialog's listbox
+                dialog.listbox.clear()
+                dialog.listbox.addItems(self.groupchat.authors)
+                dialog.entry.setText(new_name)
+
 
     def initTab2(self):
         layout = QVBoxLayout(self.tab2)
@@ -86,6 +132,7 @@ class GroupChatAnalyzer(QMainWindow):
     def displayAnalysis(self, results_df):
         # Display results in the table
         self.resultsTable.setModel(PandasModel(results_df))
+        self.resultsTable.resizeColumnsToContents()
 
     def exportResults(self):
         # Export results to csv
@@ -129,20 +176,27 @@ class GroupChatAnalyzer(QMainWindow):
         exportButton.clicked.connect(self.exportGraph)
         layout.addWidget(exportButton)
 
-    def loadMessages(self):
+    def loadMessages(self, directory=None):
         # Load messages from folder containing csv files
-        selected_directory = QFileDialog.getExistingDirectory()
+        if not directory:
+            selected_directory = QFileDialog.getExistingDirectory()
+        else:
+            selected_directory = directory
         self.groupchat = load_df(selected_directory)
+        self.extractVariablesFromGroupchat()
+        self.messages['content'].fillna("", inplace=True)
+        self.tableView.setModel(PandasModel(self.groupchat.messages))
+        self.tableView.resizeColumnsToContents()
+        self.updateStatistics()
+        
+    def extractVariablesFromGroupchat(self):
+        # Extract variables from the groupchat
         self.messages = self.groupchat.messages
         self.likes = self.groupchat.likes
         self.authors = self.groupchat.authors
         self.title = self.groupchat.title
-        self.tableView.setModel(PandasModel(self.groupchat.messages))
-        self.updateStatistics()
-        
 
     def searchMessages(self, text):
-        # TODO: fix
         if text:
             filtered_df = self.messages[self.messages['content'].str.contains(text, case=False)]
             self.tableView.setModel(PandasModel(filtered_df))
@@ -405,10 +459,48 @@ class ActivityOverTimeDialog(QDialog):
         # Return a list of selected authors
         return [author for author, cb in self.checkboxes.items() if cb.isChecked()]
 
+class RenameDialog(QDialog):
+    # Dialog for renaming authors. Displays a list of authors and allows the user to select one and enter a new name, which will be applied to all messages and likes by that author, and also dynamically update the list of authors.
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        self.setWindowTitle("Rename Author")
+        layout = QVBoxLayout(self)
+
+        # List of authors
+        layout.addWidget(QLabel("Select author to rename:"))
+        self.listbox = QListWidget()
+        self.listbox.addItems(self.parent().authors)
+        self.listbox.itemSelectionChanged.connect(self.on_listbox_select)  # Connect the signal to the method
+        layout.addWidget(self.listbox)
+
+        # Label and input field for new name
+        layout.addWidget(QLabel("Enter new name:"))
+        self.entry = QLineEdit()
+        layout.addWidget(self.entry)
+
+        # Dialog buttons
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
+        
+    def getOldName(self):
+        return self.listbox.currentItem().text()
+
+    def getNewName(self):
+        return self.entry.text().strip()
+
+    def on_listbox_select(self):
+        selected_author = self.listbox.currentItem().text()
+        self.entry.setText(selected_author)  # Set the text of the entry box to the selected author
     
 
 if __name__ == '__main__':
+    from stylesheet import stylesheet, darkmodestylesheet
     app = QApplication(sys.argv)
-    ex = GroupChatAnalyzer()
+    app.setStyleSheet(stylesheet())
+    app.setFont(QFont('Segoe UI', 10))
+    ex = GroupChatAnalyzer('datatest2')
     ex.show()
     sys.exit(app.exec())

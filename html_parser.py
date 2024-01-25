@@ -8,6 +8,7 @@ import unicodedata
 import emoji
 import tkinter as tk
 from tkinter import messagebox, ttk
+from os import makedirs
 
 HTML_CLASSES = {'author': '_3-95 _2pim _a6-h _a6-i',
                 'timestamp': '_3-94 _a6-o',
@@ -88,6 +89,7 @@ def parse_html_file(path: str) -> (pd.DataFrame, str):
 def parse_html_folder(path: str = 'data') -> (pd.DataFrame, pd.DataFrame, str):
     paths = glob.glob(f"{path}/*.html")
     paths = sorted(paths, key = lambda x : int(re.split('\_|\.', x)[-2]))
+    paths = paths[:1]
     data = [parse_html_file(path) for path in tqdm(paths, desc='Parsing HTML files')]
     dfs = [d[0] for d in data]
     titles = [d[1] for d in data]
@@ -107,95 +109,65 @@ def clean_string(s):
     s = s.strip()
     return s
 
-def rename_author(messages_df, like_events_df, old_name, new_name):
-    # Use the updated clean_string function to clean names
-    old_name_clean = clean_string(old_name)
-    new_name_clean = clean_string(new_name)
 
-    # Update the author names in messages
-    messages_df['author'] = messages_df['author'].apply(
-        lambda x: new_name_clean if clean_string(x) == old_name_clean else x
-    )
 
-    # Update the liker names in like events
-    like_events_df['liker'] = like_events_df['liker'].apply(
-        lambda x: new_name_clean if clean_string(x) == old_name_clean else x
-    )
+from PySide6.QtWidgets import QApplication, QMainWindow, QListWidget, QPushButton, QVBoxLayout, QWidget, QLineEdit, QLabel, QMessageBox
+from PySide6.QtCore import Qt
+import sys
 
-    return messages_df, like_events_df
+class MainWindow(QMainWindow):
+    def __init__(self, messages_df, like_events_df):
+        super(MainWindow, self).__init__()
+
+        self.messages_df = messages_df
+        self.like_events_df = like_events_df
+
+        self.setWindowTitle('Author Manager')
+
+        self.listbox = QListWidget()
+        self.listbox.addItems(self.like_events_df['liker'].unique())
+        self.listbox.itemSelectionChanged.connect(self.on_listbox_select)
+
+        self.label = QLabel('Rename selected author to:')
+        self.entry = QLineEdit()
+
+        self.rename_button = QPushButton('Rename Author')
+        self.rename_button.clicked.connect(self.rename_author_inner)
+
+        self.finished_button = QPushButton('Finished')
+        self.finished_button.clicked.connect(self.close)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.listbox)
+        layout.addWidget(self.label)
+        layout.addWidget(self.entry)
+        layout.addWidget(self.rename_button)
+        layout.addWidget(self.finished_button)
+
+        container = QWidget()
+        container.setLayout(layout)
+        self.setCentralWidget(container)
+
+    def rename_author_inner(self):
+        selected_author = self.listbox.currentItem().text()
+        new_author_name = self.entry.text().strip()
+        if selected_author and new_author_name and new_author_name != selected_author:
+            self.messages_df, self.like_events_df = rename_author(self.messages_df, self.like_events_df, selected_author, new_author_name)
+            self.listbox.clear()
+            self.listbox.addItems(self.like_events_df['liker'].unique())
+            QMessageBox.information(self, 'Rename Successful', f'Author "{selected_author}" has been renamed to "{new_author_name}"')
+
+    def on_listbox_select(self):
+        selected_author = self.listbox.currentItem().text()
+        self.entry.setText(selected_author)
 
 def validate(messages_df, like_events_df):
-    # Create the main window
-    root = tk.Tk()
-    root.title('Author Manager')
+    app = QApplication(sys.argv)
 
-    # Modern styling
-    style = ttk.Style()
-    style.theme_use('clam')  # Using 'clam' for a more modern look
+    window = MainWindow(messages_df, like_events_df)
+    window.show()
 
-    # Configure the style of widgets for a modern appearance
-    style.configure('TButton', font=('Helvetica', 12, 'bold'), borderwidth='4')
-    style.configure('TLabel', font=('Helvetica', 12, 'bold'))
-    style.configure('TEntry', font=('Helvetica', 12, 'normal'))
-    style.configure('TListbox', font=('Helvetica', 12, 'normal'))
-    style.configure('TFrame', background='light grey')
-
-    # Create the listbox to display authors
-    lb_frame = ttk.Frame(root, padding="10 10 10 10", style='TFrame')
-    lb_frame.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
-    scrollbar = ttk.Scrollbar(lb_frame, orient="vertical")
-    listbox = tk.Listbox(lb_frame, exportselection=0, yscrollcommand=scrollbar.set, font=('Helvetica', 12), relief=tk.FLAT)
-    scrollbar.config(command=listbox.yview)
-    scrollbar.pack(side="right", fill="y")
-    listbox.pack(side="left", fill="both", expand=True)
-
-    # Populate the listbox with authors
-    for author in like_events_df['liker'].unique():
-        listbox.insert(tk.END, author)
-
-    # Create the label and entry for the new author name
-    entry_frame = ttk.Frame(root, padding="10 10 10 10", style='TFrame')
-    entry_frame.pack(padx=10, pady=10)
-    label = ttk.Label(entry_frame, text='Rename selected author to:')
-    label.pack(side="left", padx=5)
-    entry = ttk.Entry(entry_frame, width=30)
-    entry.pack(side="left", padx=5)
-
-    # Function to handle the renaming
-    def rename_author_inner():
-        selected_author = listbox.get(listbox.curselection())
-        new_author_name = entry.get().strip()
-        if selected_author and new_author_name and new_author_name != selected_author:
-            nonlocal messages_df, like_events_df
-            messages_df, like_events_df = rename_author(messages_df, like_events_df, selected_author, new_author_name)
-            # Update the listbox
-            listbox.delete(0, tk.END)
-            for author in like_events_df['liker'].unique():
-                listbox.insert(tk.END, author)
-            messagebox.showinfo('Rename Successful', f'Author "{selected_author}" has been renamed to "{new_author_name}"')
-
-    # Update the entry with the selected author's name
-    def on_listbox_select(event):
-        selected_author = listbox.get(listbox.curselection())
-        entry.delete(0, tk.END)
-        entry.insert(0, selected_author)
-
-    # Bind the listbox selection event
-    listbox.bind('<<ListboxSelect>>', on_listbox_select)
-
-    # Create the rename button
-    rename_button = ttk.Button(root, text="Rename Author", command=rename_author_inner)
-    rename_button.pack(padx=10, pady=5)
-
-    # Create the 'Finished' button to exit the GUI
-    def close_gui():
-        root.destroy()
-
-    finished_button = ttk.Button(root, text="Finished", command=close_gui)
-    finished_button.pack(padx=10, pady=10)
-
-    # Start the event loop
-    root.mainloop()
+    sys.exit(app.exec_())
 
 def separate_dfs(df):
     # Takes in a df of all messages, and separates it into two messages and like events dfs
@@ -215,8 +187,9 @@ def separate_dfs(df):
     return messages, like_events
 
 
-def make_csvs(messages_df, likes_df, title, data_path: str = 'data'):
-    validate(messages_df, likes_df)
+def make_csvs(messages_df, likes_df, title, data_path: str = 'parsed_data'):
+    makedirs(data_path, exist_ok=True)
+    # validate(messages_df, likes_df)
     messages_df.to_csv(f"{data_path}/messages.csv")
     likes_df.to_csv(f"{data_path}/likes.csv")
     with open(f"{data_path}/title.txt", 'w') as f:
@@ -236,6 +209,21 @@ class GroupChat:
     def __len__(self) -> int:
         return len(self.messages)
 
+    def rename_author(self, old_name, new_name):
+        # Check if the old name exists in the authors list
+        if old_name not in self.authors:
+            print(old_name, self.authors)
+            raise ValueError(f'Author "{old_name}" not found in authors list')
+
+        # Rename the author in the messages df
+        self.messages.loc[self.messages['author'] == old_name, 'author'] = new_name
+
+        # Rename the author in the likes df
+        self.likes.loc[self.likes['liker'] == old_name, 'liker'] = new_name
+
+        # Update the authors list
+        self.authors = self.messages['author'].unique()
+
 def load_df(path: str = 'data', dfs: list = ['messages', 'likes']):
     m, l = tuple(pd.read_csv(f"{path}/{df}.csv", index_col=0) for df in dfs)
     title = open(f"{path}/title.txt").read()
@@ -243,6 +231,6 @@ def load_df(path: str = 'data', dfs: list = ['messages', 'likes']):
 
 if __name__ == '__main__':
     m, l, title = parse_html_folder()
-    make_csvs(m, l, title, data_path='datatest')
+    make_csvs(m, l, title, data_path='datatest2')
     # m, l = load_df()
     # print(l.head())
