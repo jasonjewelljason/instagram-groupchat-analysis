@@ -1,4 +1,3 @@
-data/
 datatest/
 datatest2/
 __pycache__
@@ -9,3 +8,4 @@ make_datasets
 dataset
 AI stuff/
 roadmap.md
+rewind.md
