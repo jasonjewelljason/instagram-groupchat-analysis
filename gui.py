@@ -502,6 +502,6 @@ if __name__ == '__main__':
     app = QApplication(sys.argv)
     app.setStyleSheet(stylesheet())
     app.setFont(QFont('Segoe UI', 10))
-    ex = GroupChatAnalyzer('datatest2')
+    ex = GroupChatAnalyzer()
     ex.show()
     sys.exit(app.exec())
