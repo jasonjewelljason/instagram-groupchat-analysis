@@ -9,3 +9,5 @@ dataset
 AI stuff/
 roadmap.md
 rewind.md
+parsed_data/
+data/*.html

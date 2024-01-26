@@ -1,5 +1,6 @@
 beautifulsoup4==4.12.3
 emoji==2.8.0
+lxml==4.9.3
 matplotlib==3.7.1
 nltk==3.8.1
 numpy==1.24.3
