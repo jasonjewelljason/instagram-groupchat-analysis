@@ -1,1 +1,14 @@
-# TODO
+beautifulsoup4==4.12.3
+emoji==2.8.0
+matplotlib==3.7.1
+nltk==3.8.1
+numpy==1.24.3
+pandas==2.0.3
+PySide6==6.6.1
+PySide6==6.6.1
+PySide6_Addons==6.6.1
+PySide6_Essentials==6.6.1
+pyspellchecker==0.7.2
+seaborn==0.13.2
+shiboken6==6.6.1
+tqdm==4.66.1

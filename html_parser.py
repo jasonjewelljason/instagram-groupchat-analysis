@@ -23,6 +23,34 @@ def remove_first_emoji(s):
         return s[all_emojis[0]['match_end']:]
     return s
 
+class GroupChat:
+    def __init__(self, messages, likes, title) -> None:
+        self.messages = messages
+        self.likes = likes
+        self.title = title
+        self.authors = self.messages['author'].unique()
+    
+    def __str__(self) -> str:
+        return f"GroupChat({self.title})"
+
+    def __len__(self) -> int:
+        return len(self.messages)
+
+    def rename_author(self, old_name, new_name):
+        # Check if the old name exists in the authors list
+        if old_name not in self.authors:
+            print(old_name, self.authors)
+            raise ValueError(f'Author "{old_name}" not found in authors list')
+
+        # Rename the author in the messages df
+        self.messages.loc[self.messages['author'] == old_name, 'author'] = new_name
+
+        # Rename the author in the likes df
+        self.likes.loc[self.likes['liker'] == old_name, 'liker'] = new_name
+
+        # Update the authors list
+        self.authors = self.messages['author'].unique()
+
 class Message:
     def __init__(self, message_div) -> None:
         self.author_div = message_div.find('div', class_=HTML_CLASSES['author'])
@@ -127,34 +155,6 @@ def make_csvs(groupchat, data_path: str = 'parsed_data'):
     with open(f"{data_path}/title.txt", 'w') as f:
         f.write(title)
     print("CSV files written!")
-
-class GroupChat:
-    def __init__(self, messages, likes, title) -> None:
-        self.messages = messages
-        self.likes = likes
-        self.title = title
-        self.authors = self.messages['author'].unique()
-    
-    def __str__(self) -> str:
-        return f"GroupChat({self.title})"
-
-    def __len__(self) -> int:
-        return len(self.messages)
-
-    def rename_author(self, old_name, new_name):
-        # Check if the old name exists in the authors list
-        if old_name not in self.authors:
-            print(old_name, self.authors)
-            raise ValueError(f'Author "{old_name}" not found in authors list')
-
-        # Rename the author in the messages df
-        self.messages.loc[self.messages['author'] == old_name, 'author'] = new_name
-
-        # Rename the author in the likes df
-        self.likes.loc[self.likes['liker'] == old_name, 'liker'] = new_name
-
-        # Update the authors list
-        self.authors = self.messages['author'].unique()
 
 def load_df(path: str = 'data', dfs: list = ['messages', 'likes']) -> GroupChat:
     # Loads a groupchat from CSV files, returns a GroupChat object
