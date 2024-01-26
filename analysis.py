@@ -8,7 +8,6 @@ from nltk.sentiment import SentimentIntensityAnalyzer
 from nltk.corpus import cmudict
 from nltk.tokenize import WhitespaceTokenizer
 import string
-from spellchecker import SpellChecker
 from itertools import product as itertools_product
 from tqdm import tqdm
 
@@ -198,6 +197,9 @@ def perform_iambic_pentameter(groupchat, check_spelling=False) -> None:
             tokenizer (WhitespaceTokenizer): Tokenizer object
             spellchecker (SpellChecker or None): Optional spellchecker for input message
         """
+        if spellchecker:
+            from spellchecker import SpellChecker
+
         if not isinstance(message, str):
             return False
 
